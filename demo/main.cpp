@@ -747,7 +747,7 @@ void shadow(const Mesh& mesh)
 	       (end - start) * 1000);
 }
 
-void meshlets(const Mesh& mesh)
+void meshlets(const Mesh& mesh, bool linear)
 {
 	const size_t max_vertices = 64;
 	const size_t max_triangles = 126;
@@ -755,7 +755,12 @@ void meshlets(const Mesh& mesh)
 	// note: input mesh is assumed to be optimized for vertex cache and vertex fetch
 	double start = timestamp();
 	std::vector<meshopt_Meshlet> meshlets(meshopt_buildMeshletsBound(mesh.indices.size(), max_vertices, max_triangles));
-	meshlets.resize(meshopt_buildMeshlets(&meshlets[0], &mesh.indices[0], mesh.indices.size(), mesh.vertices.size(), max_vertices, max_triangles));
+
+	if (linear)
+		meshlets.resize(meshopt_buildMeshletsLinear(&meshlets[0], &mesh.indices[0], mesh.indices.size(), mesh.vertices.size(), max_vertices, max_triangles));
+	else
+		meshlets.resize(meshopt_buildMeshlets(&meshlets[0], &mesh.indices[0], mesh.indices.size(), &mesh.vertices[0].px, mesh.vertices.size(), sizeof(Vertex), max_vertices, max_triangles));
+
 	double end = timestamp();
 
 	double avg_vertices = 0;
@@ -774,7 +779,8 @@ void meshlets(const Mesh& mesh)
 	avg_vertices /= double(meshlets.size());
 	avg_triangles /= double(meshlets.size());
 
-	printf("Meshlets : %d meshlets (avg vertices %.1f, avg triangles %.1f, not full %d) in %.2f msec\n",
+	printf("Meshlets%c: %d meshlets (avg vertices %.1f, avg triangles %.1f, not full %d) in %.2f msec\n",
+		   linear ? 'L' : ' ',
 	       int(meshlets.size()), avg_vertices, avg_triangles, int(not_full), (end - start) * 1000);
 
 	float camera[3] = {100, 100, 100};
@@ -1063,7 +1069,9 @@ void process(const char* path)
 	stripify(copy, true, 'R');
 	stripify(copystrip, true, 'S');
 
-	meshlets(copy);
+	meshlets(copy, false);
+	meshlets(copy, true);
+
 	shadow(copy);
 
 	encodeIndex(copy, ' ');
@@ -1099,7 +1107,8 @@ void processDev(const char* path)
 	Mesh copy = mesh;
 	meshopt_optimizeVertexCache(&copy.indices[0], &copy.indices[0], copy.indices.size(), copy.vertices.size());
 
-	meshlets(copy);
+	meshlets(copy, false);
+	meshlets(copy, true);
 }
 
 int main(int argc, char** argv)
