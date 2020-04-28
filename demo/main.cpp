@@ -786,10 +786,14 @@ void meshlets(const Mesh& mesh)
 	size_t accepted = 0;
 	size_t accepted_s8 = 0;
 
+	std::vector<float> radii(meshlets.size());
+
 	double startc = timestamp();
 	for (size_t i = 0; i < meshlets.size(); ++i)
 	{
 		meshopt_Bounds bounds = meshopt_computeMeshletBounds(&meshlets[i], &mesh.vertices[0].px, mesh.vertices.size(), sizeof(Vertex));
+
+		radii[i] = bounds.radius;
 
 		// trivial accept: we can't ever backface cull this meshlet
 		accepted += (bounds.cone_cutoff >= 1);
@@ -811,6 +815,32 @@ void meshlets(const Mesh& mesh)
 		rejected_alt_s8 += cview[0] * (bounds.cone_axis_s8[0] / 127.f) + cview[1] * (bounds.cone_axis_s8[1] / 127.f) + cview[2] * (bounds.cone_axis_s8[2] / 127.f) >= (bounds.cone_cutoff_s8 / 127.f) * cviewlength + bounds.radius;
 	}
 	double endc = timestamp();
+
+	double radius_mean = 0;
+
+	for (size_t i = 0; i < meshlets.size(); ++i)
+		radius_mean += radii[i];
+
+	radius_mean /= double(meshlets.size());
+
+	double radius_variance = 0;
+
+	for (size_t i = 0; i < meshlets.size(); ++i)
+		radius_variance += (radii[i] - radius_mean) * (radii[i] - radius_mean);
+
+	radius_variance /= double(meshlets.size() - 1);
+
+	double radius_stddev = sqrt(radius_variance);
+
+	size_t meshlets_std = 0;
+
+	for (size_t i = 0; i < meshlets.size(); ++i)
+		meshlets_std += radii[i] < radius_mean + radius_stddev;
+
+	printf("BoundDist: mean %f stddev %f; %.1f%% meshlets are under mean+stddev\n",
+		radius_mean,
+		radius_stddev,
+		double(meshlets_std) / double(meshlets.size()) * 100);
 
 	printf("ConeCull : rejected apex %d (%.1f%%) / center %d (%.1f%%), trivially accepted %d (%.1f%%) in %.2f msec\n",
 	       int(rejected), double(rejected) / double(meshlets.size()) * 100,
@@ -1068,19 +1098,8 @@ void processDev(const char* path)
 
 	Mesh copy = mesh;
 	meshopt_optimizeVertexCache(&copy.indices[0], &copy.indices[0], copy.indices.size(), copy.vertices.size());
-	meshopt_optimizeVertexFetch(&copy.vertices[0], &copy.indices[0], copy.indices.size(), &copy.vertices[0], copy.vertices.size(), sizeof(Vertex));
 
-	Mesh copystrip = mesh;
-	meshopt_optimizeVertexCacheStrip(&copystrip.indices[0], &copystrip.indices[0], copystrip.indices.size(), copystrip.vertices.size());
-	meshopt_optimizeVertexFetch(&copystrip.vertices[0], &copystrip.indices[0], copystrip.indices.size(), &copystrip.vertices[0], copystrip.vertices.size(), sizeof(Vertex));
-
-	encodeIndex(copy, ' ');
-	encodeIndex(copystrip, 'S');
-
-	std::vector<unsigned int> strip(meshopt_stripifyBound(copystrip.indices.size()));
-	strip.resize(meshopt_stripify(&strip[0], &copystrip.indices[0], copystrip.indices.size(), copystrip.vertices.size(), 0));
-
-	encodeIndexSequence(strip, copystrip.vertices.size(), 'D');
+	meshlets(copy);
 }
 
 int main(int argc, char** argv)
