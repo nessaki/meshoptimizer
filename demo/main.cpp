@@ -747,7 +747,7 @@ void shadow(const Mesh& mesh)
 	       (end - start) * 1000);
 }
 
-void meshlets(const Mesh& mesh, bool linear)
+void meshlets(const Mesh& mesh, bool scan)
 {
 	const size_t max_vertices = 64;
 	const size_t max_triangles = 126;
@@ -756,8 +756,8 @@ void meshlets(const Mesh& mesh, bool linear)
 	double start = timestamp();
 	std::vector<meshopt_Meshlet> meshlets(meshopt_buildMeshletsBound(mesh.indices.size(), max_vertices, max_triangles));
 
-	if (linear)
-		meshlets.resize(meshopt_buildMeshletsLinear(&meshlets[0], &mesh.indices[0], mesh.indices.size(), mesh.vertices.size(), max_vertices, max_triangles));
+	if (scan)
+		meshlets.resize(meshopt_buildMeshletsScan(&meshlets[0], &mesh.indices[0], mesh.indices.size(), mesh.vertices.size(), max_vertices, max_triangles));
 	else
 		meshlets.resize(meshopt_buildMeshlets(&meshlets[0], &mesh.indices[0], mesh.indices.size(), &mesh.vertices[0].px, mesh.vertices.size(), sizeof(Vertex), max_vertices, max_triangles));
 
@@ -780,7 +780,7 @@ void meshlets(const Mesh& mesh, bool linear)
 	avg_triangles /= double(meshlets.size());
 
 	printf("Meshlets%c: %d meshlets (avg vertices %.1f, avg triangles %.1f, not full %d) in %.2f msec\n",
-	       linear ? 'L' : ' ',
+	       scan ? 'S' : ' ',
 	       int(meshlets.size()), avg_vertices, avg_triangles, int(not_full), (end - start) * 1000);
 
 	float camera[3] = {100, 100, 100};
