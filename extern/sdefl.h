@@ -581,7 +581,7 @@ sdefl_compr(struct sdefl *s, unsigned char *out, const unsigned char *in,
         litlen++;
       }
       while (run-- != 0) {
-        unsigned h = sdefl_hash32(&in[i]);
+        unsigned h = (i + 4 <= in_len) ? sdefl_hash32(&in[i]) : 0;
         s->prv[i&SDEFL_WIN_MSK] = s->tbl[h];
         s->tbl[h] = i, i += inc;
       }
