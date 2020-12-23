@@ -568,9 +568,9 @@ void optimize(const Mesh& mesh, const char* name, void (*optf)(Mesh& mesh))
 template <typename T>
 size_t compress(const std::vector<T>& data, int level = SDEFL_LVL_DEF)
 {
-	std::vector<unsigned char> cbuf(sdefl_bound(data.size() * sizeof(T)));
+	std::vector<unsigned char> cbuf(sdefl_bound(int(data.size() * sizeof(T))));
 	sdefl s = {};
-	return sdeflate(&s, &cbuf[0], reinterpret_cast<const unsigned char*>(&data[0]), data.size() * sizeof(T), level);
+	return sdeflate(&s, &cbuf[0], reinterpret_cast<const unsigned char*>(&data[0]), int(data.size() * sizeof(T)), level);
 }
 
 void encodeIndex(const Mesh& mesh, char desc)
