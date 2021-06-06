@@ -52,141 +52,6 @@ static const char* mimeExtension(const char* mime_type)
 	return ".raw";
 }
 
-#ifdef __wasi__
-static int execute(const char* cmd, bool ignore_stdout, bool ignore_stderr)
-{
-	return system(cmd);
-}
-
-static std::string getExecutable(const char* name, const char* env)
-{
-	return name;
-}
-#else
-static int execute(const char* cmd_, bool ignore_stdout, bool ignore_stderr)
-{
-#ifdef _WIN32
-	std::string ignore = "nul";
-#else
-	std::string ignore = "/dev/null";
-#endif
-
-	std::string cmd = cmd_;
-
-	if (ignore_stdout)
-		(cmd += " >") += ignore;
-	if (ignore_stderr)
-		(cmd += " 2>") += ignore;
-
-	return system(cmd.c_str());
-}
-
-static std::string getExecutable(const char* name, const char* env)
-{
-	const char* path = getenv(env);
-	path = path ? path : name;
-
-#ifdef _WIN32
-	// when the executable path contains a space, we need to quote the path ourselves
-	if (path[0] != '"' && strchr(path, ' '))
-		return '"' + std::string(path) + '"';
-#endif
-
-	return path;
-}
-#endif
-
-bool checkBasis(bool verbose)
-{
-	std::string cmd = getExecutable("basisu", "BASISU_PATH");
-
-	cmd += " -version";
-
-	int rc = execute(cmd.c_str(), /* ignore_stdout= */ !verbose, /* ignore_stderr= */ !verbose);
-	if (verbose)
-		printf("%s => %d\n", cmd.c_str(), rc);
-
-	return rc == 0;
-}
-
-bool encodeBasis(const std::string& data, const char* mime_type, std::string& result, const ImageInfo& info, const Settings& settings)
-{
-	// TODO: Support texture_scale and texture_pow2 via new -resample switch from https://github.com/BinomialLLC/basis_universal/pull/226
-	TempFile temp_input(mimeExtension(mime_type));
-	TempFile temp_output(".ktx2");
-
-	if (!writeFile(temp_input.path.c_str(), data))
-		return false;
-
-	std::string cmd = getExecutable("basisu", "BASISU_PATH");
-
-	int quality = settings.texture_quality[info.kind];
-	bool uastc = settings.texture_uastc[info.kind];
-
-	const BasisSettings& bs = kBasisSettings[quality - 1];
-
-	cmd += " -mipmap";
-
-	if (settings.texture_flipy)
-		cmd += " -y_flip";
-
-	if (info.normal_map)
-	{
-		cmd += " -normal_map";
-		// for optimal quality we should specify seperate_rg_to_color_alpha but this requires renderer awareness
-	}
-	else if (!info.srgb)
-	{
-		cmd += " -linear";
-	}
-
-	if (uastc)
-	{
-		char cs[128];
-		sprintf(cs, " -uastc_level %d -uastc_rdo_l %.2f", bs.uastc_l, bs.uastc_q);
-
-		cmd += " -uastc";
-		cmd += cs;
-		cmd += " -uastc_rdo_d 1024";
-	}
-	else
-	{
-		char cs[128];
-		sprintf(cs, " -comp_level %d -q %d", bs.etc1s_l, bs.etc1s_q);
-
-		cmd += cs;
-	}
-
-	cmd += " -ktx2";
-
-	if (uastc)
-		cmd += " -ktx2_zstandard_level 9";
-
-	cmd += " -file ";
-	cmd += temp_input.path;
-	cmd += " -output_file ";
-	cmd += temp_output.path;
-
-	int rc = execute(cmd.c_str(), /* ignore_stdout= */ true, /* ignore_stderr= */ false);
-	if (settings.verbose > 1)
-		printf("%s => %d\n", cmd.c_str(), rc);
-
-	return rc == 0 && readFile(temp_output.path.c_str(), result);
-}
-
-bool checkKtx(bool verbose)
-{
-	std::string cmd = getExecutable("toktx", "TOKTX_PATH");
-
-	cmd += " --version";
-
-	int rc = execute(cmd.c_str(), /* ignore_stdout= */ !verbose, /* ignore_stderr= */ !verbose);
-	if (verbose)
-		printf("%s => %d\n", cmd.c_str(), rc);
-
-	return rc == 0;
-}
-
 static int readInt16(const std::string& data, size_t offset)
 {
 	return (unsigned char)data[offset] * 256 + (unsigned char)data[offset + 1];
@@ -286,6 +151,163 @@ static int roundBlock(int value, bool pow2)
 		return roundPow2(value);
 
 	return (value + 3) & ~3;
+}
+
+#ifdef __wasi__
+static int execute(const char* cmd, bool ignore_stdout, bool ignore_stderr)
+{
+	return system(cmd);
+}
+
+static std::string getExecutable(const char* name, const char* env)
+{
+	return name;
+}
+#else
+static int execute(const char* cmd_, bool ignore_stdout, bool ignore_stderr)
+{
+#ifdef _WIN32
+	std::string ignore = "nul";
+#else
+	std::string ignore = "/dev/null";
+#endif
+
+	std::string cmd = cmd_;
+
+	if (ignore_stdout)
+		(cmd += " >") += ignore;
+	if (ignore_stderr)
+		(cmd += " 2>") += ignore;
+
+	return system(cmd.c_str());
+}
+
+static std::string getExecutable(const char* name, const char* env)
+{
+	const char* path = getenv(env);
+	path = path ? path : name;
+
+#ifdef _WIN32
+	// when the executable path contains a space, we need to quote the path ourselves
+	if (path[0] != '"' && strchr(path, ' '))
+		return '"' + std::string(path) + '"';
+#endif
+
+	return path;
+}
+#endif
+
+bool checkBasis(bool verbose)
+{
+#ifdef WITH_BASISU
+	(void)verbose;
+	return true;
+#else
+	std::string cmd = getExecutable("basisu", "BASISU_PATH");
+
+	cmd += " -version";
+
+	int rc = execute(cmd.c_str(), /* ignore_stdout= */ !verbose, /* ignore_stderr= */ !verbose);
+	if (verbose)
+		printf("%s => %d\n", cmd.c_str(), rc);
+
+	return rc == 0;
+#endif
+}
+
+bool encodeBasisInternal(const char* input, const char* output, bool yflip, bool normal_map, bool linear, bool uastc, int uastc_l, float uastc_q, int etc1s_l, int etc1s_q, int zstd_l, int width, int height);
+
+bool encodeBasis(const std::string& data, const char* mime_type, std::string& result, const ImageInfo& info, const Settings& settings)
+{
+	// TODO: Support texture_scale and texture_pow2 via new -resample switch from https://github.com/BinomialLLC/basis_universal/pull/226
+	TempFile temp_input(mimeExtension(mime_type));
+	TempFile temp_output(".ktx2");
+
+	if (!writeFile(temp_input.path.c_str(), data))
+		return false;
+
+	int quality = settings.texture_quality[info.kind];
+	bool uastc = settings.texture_uastc[info.kind];
+
+	const BasisSettings& bs = kBasisSettings[quality - 1];
+
+#ifdef WITH_BASISU
+	int width = 0, height = 0;
+	if (!getDimensions(data, mime_type, width, height))
+		return false;
+
+	int newWidth = roundBlock(int(width * settings.texture_scale), settings.texture_pow2);
+	int newHeight = roundBlock(int(height * settings.texture_scale), settings.texture_pow2);
+
+	int zstd = uastc ? 9 : 0;
+
+	bool ok = encodeBasisInternal(temp_input.path.c_str(), temp_output.path.c_str(), settings.texture_flipy, info.normal_map, !info.srgb, uastc, bs.uastc_l, bs.uastc_q, bs.etc1s_l, bs.etc1s_q, zstd, newWidth, newHeight);
+
+	return ok && readFile(temp_output.path.c_str(), result);
+#else
+	std::string cmd = getExecutable("basisu", "BASISU_PATH");
+
+	cmd += " -mipmap";
+
+	if (settings.texture_flipy)
+		cmd += " -y_flip";
+
+	if (info.normal_map)
+	{
+		cmd += " -normal_map";
+		// for optimal quality we should specify seperate_rg_to_color_alpha but this requires renderer awareness
+	}
+	else if (!info.srgb)
+	{
+		cmd += " -linear";
+	}
+
+	if (uastc)
+	{
+		char cs[128];
+		sprintf(cs, " -uastc_level %d -uastc_rdo_l %.2f", bs.uastc_l, bs.uastc_q);
+
+		cmd += " -uastc";
+		cmd += cs;
+		cmd += " -uastc_rdo_d 1024";
+	}
+	else
+	{
+		char cs[128];
+		sprintf(cs, " -comp_level %d -q %d", bs.etc1s_l, bs.etc1s_q);
+
+		cmd += cs;
+	}
+
+	cmd += " -ktx2";
+
+	if (uastc)
+		cmd += " -ktx2_zstandard_level 9";
+
+	cmd += " -file ";
+	cmd += temp_input.path;
+	cmd += " -output_file ";
+	cmd += temp_output.path;
+
+	int rc = execute(cmd.c_str(), /* ignore_stdout= */ true, /* ignore_stderr= */ false);
+	if (settings.verbose > 1)
+		printf("%s => %d\n", cmd.c_str(), rc);
+
+	return rc == 0 && readFile(temp_output.path.c_str(), result);
+#endif
+}
+
+bool checkKtx(bool verbose)
+{
+	std::string cmd = getExecutable("toktx", "TOKTX_PATH");
+
+	cmd += " --version";
+
+	int rc = execute(cmd.c_str(), /* ignore_stdout= */ !verbose, /* ignore_stderr= */ !verbose);
+	if (verbose)
+		printf("%s => %d\n", cmd.c_str(), rc);
+
+	return rc == 0;
 }
 
 bool encodeKtx(const std::string& data, const char* mime_type, std::string& result, const ImageInfo& info, const Settings& settings)
