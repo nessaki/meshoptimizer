@@ -366,6 +366,12 @@ void encodeImageAsync(std::string& encoded, const cgltf_image& image, const Imag
 		return;
 	}
 
+	if (mime_type == "image/ktx2")
+	{
+		encoded.swap(img_data);
+		return;
+	}
+
 	encodePush([&encoded, img_data, mime_type, info, settings]() {
 		if (!encodeBasis(img_data, mime_type.c_str(), encoded, info, settings))
 			encoded.clear();
